@@ -719,6 +719,18 @@ end
     end
 end
 
+
+mutable struct ReplaceDict{K,V} <: AbstractDict{K,V}
+    interior::Dict{K, V}
+end
+Base.setindex!(rd::ReplaceDict, v, k) = setindex!(rd.interior, v, k)
+Base.getindex(rd::ReplaceDict, k) = getindex(rd.interior, k)
+Base.get(rd::ReplaceDict, k, default) = get(rd.interior, k, default)
+Base.iterate(rd::ReplaceDict) = iterate(rd.interior)
+Base.iterate(rd::ReplaceDict, x) = iterate(rd.interior, x)
+Base.length(rd::ReplaceDict) = length(rd.interior)
+Base.get!(rd::ReplaceDict, k, default) = get!(rd.interior, k, default)
+Base.pop!(rd::ReplaceDict, x) = pop!(rd.interior, x)
 @testset "replace! & replace" begin
     a = [1, 2, 3, 1]
     @test replace(x -> iseven(x) ? 2x : x, a) == [1, 4, 3, 1]
@@ -810,6 +822,19 @@ end
     @test replace((NaN, 1.0), NaN=>0.0) === (0.0, 1.0)
     @test replace([1, missing], missing=>0) == [1, 0]
     @test replace((1, missing), missing=>0) === (1, 0)
+
+    # test replace and friends for AbstractDicts
+    d1 = ReplaceDict(Dict(1=>2, 3=>4))
+    d2 = replace(d1, (1=>2) => (1=>"a"))
+    @test d2 == ReplaceDict(Dict(1=>"a", 3=>4))
+    replace!(d1, (1=>2) => (1=>-2))
+    @test d1 == ReplaceDict(Dict(1=>-2, 3=>4))
+
+    d1 = ReplaceDict(Dict(1=>2, 3=>1, 5=>1, 7=>1))
+    @test replace(d1, (1=>2) => (1=>"a"), count=0) == d1
+    d2 = replace((kv)->(kv[2] == 1 ? kv[1]=>2 : kv), d1, count=2)
+    @test count(v->v==2, values(d2)) == 3
+    @test count(v->v==1, values(d2)) == 1
 end
 
 @testset "⊆, ⊊, ⊈, ⊇, ⊋, ⊉, <, <=, issetequal" begin
