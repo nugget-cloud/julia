@@ -692,6 +692,33 @@ end
     return tmerge_types_slow(typea, typeb)
 end
 
+@nospecializeinfer @noinline function tname_intersect(aname::Core.TypeName, bname::Core.TypeName)
+    aname === bname && return true
+    if !isabstracttype(aname.wrapper) && !isabstracttype(bname.wrapper)
+        return false # fast path
+    end
+    Any.name === aname && return true
+    a = unwrap_unionall(aname.wrapper)
+    heighta = 0
+    while a !== Any
+        heighta += 1
+        a = a.super
+    end
+    b = unwrap_unionall(bname.wrapper)
+    heightb = 0
+    while b !== Any
+        b.name === aname && return true
+        heightb += 1
+        b = b.super
+    end
+    a = unwrap_unionall(aname.wrapper)
+    while heighta > heightb
+        a = a.super
+        heighta -= 1
+    end
+    return a.name === bname
+end
+
 @nospecializeinfer @noinline function tmerge_types_slow(@nospecialize(typea::Type), @nospecialize(typeb::Type))
     # collect the list of types from past tmerge calls returning Union
     # and then reduce over that list
@@ -716,9 +743,11 @@ end
     # in which case, simplify this tmerge by replacing it with
     # the widest possible version of itself (the wrapper)
     for i in 1:length(types)
+        typenames[i] === Any.name && continue
         ti = types[i]
         for j in (i + 1):length(types)
-            if typenames[i] === typenames[j]
+            typenames[j] === Any.name && continue
+            if tname_intersect(typenames[i], typenames[j])
                 tj = types[j]
                 if ti <: tj
                     types[i] = Union{}
@@ -727,7 +756,7 @@ end
                 elseif tj <: ti
                     types[j] = Union{}
                     typenames[j] = Any.name
-                else
+                elseif typenames[i] === typenames[j]
                     if typenames[i] === Tuple.name
                         # try to widen Tuple slower: make a single non-concrete Tuple containing both
                         # converge the Tuple element-wise if they are the same length
@@ -754,34 +783,35 @@ end
                     typenames[i] = Any.name
                     types[j] = widen
                     break
+                else
+                    # n.b. we could merge these slower (use the algorithm above), but we would need to find the right supertype first to do that
+                    types[i] = typenames[i].wrapper
+                    types[j] = typenames[j].wrapper
                 end
             end
         end
     end
-    u = Union{types...}
-    # don't let type unions get too big, if the above didn't reduce it enough
-    if issimpleenoughtype(u)
-        return u
-    end
-    # don't let the slow widening of Tuple cause the whole type to grow too fast
+    # don't let elements of the union get too big, if the above didn't reduce something
     for i in 1:length(types)
+        # this element is too complicated, so
+        # just return the widest possible type now
+        issimpleenoughtype(types[i]) && continue
         if typenames[i] === Tuple.name
-            widen = unwrap_unionall(types[i])
-            if isa(widen, DataType) && !isvatuple(widen)
-                widen = NTuple{length(widen.parameters), Any}
-            else
-                widen = Tuple
+            ti = types[i]
+            tip = (unwrap_unionall(types[i])::DataType).parameters
+            lt = length(tip)
+            p = Vector{Any}(undef, lt)
+            for j = 1:lt
+                ui = tip[j]
+                p[j] = issimpleenoughtype(ui) ? ui : isvarargtype(ui) ? Vararg : Any
             end
-            types[i] = widen
-            u = Union{types...}
-            if issimpleenoughtype(u)
-                return u
-            end
-            break
+            types[i] = rewrap_unionall(Tuple{p...}, ti)
+        else
+            issimpleenoughtype(types[i]) || return Any
         end
     end
-    # finally, just return the widest possible type
-    return Any
+    u = Union{types...}
+    return u
 end
 
 # the inverse of switchtupleunion, with limits on max element union size
