@@ -322,6 +322,10 @@ function exec_options(opts)
             end
         end
     end
+
+    ret = 0
+    isdefined(Main, :main) && (ret = invokelatest(Main.main, ARGS))
+
     if repl || is_interactive::Bool
         b = opts.banner
         auto = b == -1
@@ -330,7 +334,7 @@ function exec_options(opts)
                  :short # b == 2
         run_main_repl(interactiveinput, quiet, banner, history_file, color_set)
     end
-    nothing
+    return ret
 end
 
 function _global_julia_startup_file()
@@ -546,13 +550,23 @@ function _start()
     append!(ARGS, Core.ARGS)
     # clear any postoutput hooks that were saved in the sysimage
     empty!(Base.postoutput_hooks)
+    local ret
     try
-        exec_options(JLOptions())
+        if isdefined(Core, :Main) && isdefined(Core.Main, :main)
+            ret = Core.Main.main(ARGS)
+        elseif isassigned(REPL_MODULE_REF)
+            ret = REPL_MODULE_REF[].main(ARGS)
+        else
+            error("No entry point defined and REPL not loaded.")
+        end
+        ret === nothing && (ret = 0)
+        ret = Cint(ret)
     catch
+        ret = Cint(1)
         invokelatest(display_error, scrub_repl_backtrace(current_exceptions()))
-        exit(1)
     end
     if is_interactive && get(stdout, :color, false)
         print(color_normal)
     end
+    return ret
 end
