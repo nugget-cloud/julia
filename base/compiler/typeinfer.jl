@@ -739,7 +739,10 @@ function type_annotate!(interp::AbstractInterpreter, sv::InferenceState, run_opt
                     elseif ssavaluetypes[i] === Bottom
                         block = block_for_inst(sv.cfg, i)
                         cfg_delete_edge!(sv.cfg, block, block + 1)
-                        cfg_delete_edge!(sv.cfg, block, block_for_inst(sv.cfg, expr.dest))
+                        falsedest = block_for_inst(sv.cfg, expr.dest)
+                        if falsedest != block + 1
+                            cfg_delete_edge!(sv.cfg, block, falsedest)
+                        end
                         expr = Expr(:call, Core.typeassert, expr.cond, Bool)
                     end
                 end
