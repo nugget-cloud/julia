@@ -3017,6 +3017,14 @@ function typeinf_local(interp::AbstractInterpreter, frame::InferenceState)
                     if condval === true
                         @goto fallthrough
                     else
+                        if condval !== false && !⊑(𝕃ᵢ, orig_condt, Bool)
+                            merge_effects!(interp, frame, EFFECTS_THROWS)
+                            if !hasintersect(widenconst(orig_condt), Bool)
+                                ssavaluetypes[currpc] = Bottom
+                                @goto find_next_bb
+                            end
+                        end
+
                         succs = bbs[currbb].succs
                         if length(succs) == 1
                             @assert condval === false || (stmt.dest === currpc + 1)
@@ -3030,38 +3038,30 @@ function typeinf_local(interp::AbstractInterpreter, frame::InferenceState)
                             nextbb = falsebb
                             handle_control_backedge!(interp, frame, currpc, stmt.dest)
                             @goto branch
-                        else
-                            if !⊑(𝕃ᵢ, orig_condt, Bool)
-                                merge_effects!(interp, frame, EFFECTS_THROWS)
-                                if !hasintersect(widenconst(orig_condt), Bool)
-                                    ssavaluetypes[currpc] = Bottom
-                                    @goto find_next_bb
-                                end
-                            end
-
-                            # We continue with the true branch, but process the false
-                            # branch here.
-                            if isa(condt, Conditional)
-                                else_change = conditional_change(𝕃ᵢ, currstate, condt.elsetype, condt.slot)
-                                if else_change !== nothing
-                                    false_vartable = stoverwrite1!(copy(currstate), else_change)
-                                else
-                                    false_vartable = currstate
-                                end
-                                changed = update_bbstate!(𝕃ᵢ, frame, falsebb, false_vartable)
-                                then_change = conditional_change(𝕃ᵢ, currstate, condt.thentype, condt.slot)
-                                if then_change !== nothing
-                                    stoverwrite1!(currstate, then_change)
-                                end
-                            else
-                                changed = update_bbstate!(𝕃ᵢ, frame, falsebb, currstate)
-                            end
-                            if changed
-                                handle_control_backedge!(interp, frame, currpc, stmt.dest)
-                                push!(W, falsebb)
-                            end
-                            @goto fallthrough
                         end
+
+                        # We continue with the true branch, but process the false
+                        # branch here.
+                        if isa(condt, Conditional)
+                            else_change = conditional_change(𝕃ᵢ, currstate, condt.elsetype, condt.slot)
+                            if else_change !== nothing
+                                false_vartable = stoverwrite1!(copy(currstate), else_change)
+                            else
+                                false_vartable = currstate
+                            end
+                            changed = update_bbstate!(𝕃ᵢ, frame, falsebb, false_vartable)
+                            then_change = conditional_change(𝕃ᵢ, currstate, condt.thentype, condt.slot)
+                            if then_change !== nothing
+                                stoverwrite1!(currstate, then_change)
+                            end
+                        else
+                            changed = update_bbstate!(𝕃ᵢ, frame, falsebb, currstate)
+                        end
+                        if changed
+                            handle_control_backedge!(interp, frame, currpc, stmt.dest)
+                            push!(W, falsebb)
+                        end
+                        @goto fallthrough
                     end
                 elseif isa(stmt, ReturnNode)
                     rt = abstract_eval_value(interp, stmt.val, currstate, frame)
