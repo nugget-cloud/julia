@@ -2565,3 +2565,9 @@ let a = Tuple{Union{Nothing, Type{Pair{T1}} where T1}}
     b = Tuple{Type{X2} where X2<:(Pair{T2, Y2} where {Src, Z2<:Src, Y2<:Union{Val{Z2}, Z2}})} where T2
     @test !Base.has_free_typevars(typeintersect(a, b))
 end
+
+# issue #50709
+let (t, (tv,)) = intersection_env(Type{Vector{S}} where {T, S<:AbstractVector{T}}, Type{Vector{T}} where T)
+    @test tv isa TypeVar
+    @test !Base.has_free_typevars(tv.ub)
+end

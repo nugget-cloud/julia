@@ -4167,6 +4167,34 @@ static int might_intersect_concrete(jl_value_t *a)
     return 0;
 }
 
+static jl_value_t *widen_sparam_bound(jl_value_t *t)
+{
+    if (!jl_has_free_typevars(t))
+        return t;
+    if (jl_is_datatype(t))
+        return ((jl_datatype_t*)t)->name->wrapper;
+    return (jl_value_t*)jl_any_type;
+}
+
+static jl_value_t *narrow_sparam_bound(jl_value_t *t)
+{
+    if (!jl_has_free_typevars(t))
+        return t;
+    return jl_bottom_type;
+}
+
+static jl_value_t *widen_sparam_estimate(jl_value_t *t)
+{
+    if (!jl_is_typevar(t))
+        return t;
+    jl_tvar_t *v = (jl_tvar_t*)t;
+    jl_value_t *wlb = narrow_sparam_bound(v->lb);
+    jl_value_t *wub = widen_sparam_bound(v->ub);
+    if (wlb != v->lb || wub != v->ub)
+        return (jl_value_t*)jl_new_typevar(v->name, wlb, wub);
+    return t;
+}
+
 // sets *issubty to 1 iff `a` is a subtype of `b`
 jl_value_t *jl_type_intersection_env_s(jl_value_t *a, jl_value_t *b, jl_svec_t **penv, int *issubty)
 {
@@ -4251,7 +4279,7 @@ jl_value_t *jl_type_intersection_env_s(jl_value_t *a, jl_value_t *b, jl_svec_t *
         jl_svec_t *e = jl_alloc_svec(sz);
         for (i = 0; i < sz; i++) {
             assert(env[i]);
-            jl_svecset(e, i, env[i]);
+            jl_svecset(e, i, widen_sparam_estimate(env[i]));
         }
         *penv = e;
     }
